@@ -2,11 +2,19 @@
 """
 Casino Scraper using Selenium + BeautifulSoup + GPT
 Run this separately from the web app to scrape casino sites.
+
+Usage:
+    python scrape.py                  # Scrape all configured URLs
+    python scrape.py --all            # Scrape all configured URLs
+    python scrape.py --casino "Bet365" # Scrape a specific casino by name
+    python scrape.py --url "https://..." --casino-id "uuid" # Scrape a specific URL
 """
 
 import os
+import sys
 import json
 import time
+import argparse
 from dotenv import load_dotenv
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
@@ -88,7 +96,7 @@ def fetch_page(url: str) -> str:
     """Fetch a page using Selenium and return the HTML."""
     driver = get_driver()
     try:
-        print(f"Fetching: {url}")
+        print(f"  Fetching: {url}")
         driver.get(url)
         time.sleep(3)  # Wait for dynamic content
         html = driver.page_source
@@ -123,7 +131,7 @@ def clean_html(html: str) -> str:
 
 def extract_with_gpt(text: str, source_url: str) -> dict:
     """Extract structured data using GPT."""
-    print("Extracting data with GPT...")
+    print("  Extracting data with GPT...")
 
     prompt = EXTRACTION_PROMPT.format(html=text)
 
@@ -141,16 +149,19 @@ def extract_with_gpt(text: str, source_url: str) -> dict:
     return data
 
 
-def scrape_casino(casino_id: str, url: str) -> dict:
-    """Scrape a single casino and save to Supabase."""
+def scrape_url(casino_id: str, url: str, config_id: str = None) -> dict:
+    """Scrape a single URL and save to Supabase."""
 
     # Create processing record
-    result = supabase.table("scraped_data").insert({
+    insert_data = {
         "casino_id": casino_id,
         "source_url": url,
         "status": "processing"
-    }).execute()
+    }
+    if config_id:
+        insert_data["config_id"] = config_id
 
+    result = supabase.table("scraped_data").insert(insert_data).execute()
     record_id = result.data[0]["id"]
 
     try:
@@ -171,11 +182,11 @@ def scrape_casino(casino_id: str, url: str) -> dict:
             "processed_at": "now()"
         }).eq("id", record_id).execute()
 
-        print(f"✓ Successfully scraped: {url}")
+        print(f"  ✓ Success: {url}")
         return {"success": True, "data": extracted}
 
     except Exception as e:
-        print(f"✗ Error scraping {url}: {e}")
+        print(f"  ✗ Error: {e}")
         supabase.table("scraped_data").update({
             "status": "failed",
             "error_message": str(e)
@@ -183,37 +194,150 @@ def scrape_casino(casino_id: str, url: str) -> dict:
         return {"success": False, "error": str(e)}
 
 
-def scrape_all_active():
-    """Scrape all active casinos."""
-    result = supabase.table("casinos").select("id, name, base_url").eq("is_active", True).execute()
+def scrape_all_configs():
+    """Scrape all active URLs from scrape_configs table."""
+    print("\n=== Batch Scraper ===\n")
+
+    # Get all active scrape configs with casino info
+    result = supabase.table("scrape_configs")\
+        .select("id, casino_id, name, page_url, casinos(name)")\
+        .eq("is_active", True)\
+        .execute()
+
+    configs = result.data
+    total = len(configs)
+
+    if total == 0:
+        print("No active scrape URLs configured.")
+        print("Add URLs in the web app: Casinos > Edit > Scrape URLs")
+        return
+
+    print(f"Found {total} active URLs to scrape\n")
+
+    success = 0
+    failed = 0
+
+    for i, config in enumerate(configs, 1):
+        casino_name = config.get("casinos", {}).get("name", "Unknown")
+        print(f"[{i}/{total}] {casino_name} - {config['name']}")
+
+        result = scrape_url(
+            casino_id=config["casino_id"],
+            url=config["page_url"],
+            config_id=config["id"]
+        )
+
+        if result["success"]:
+            success += 1
+        else:
+            failed += 1
+
+        print()
+
+    print(f"\n=== Batch Complete ===")
+    print(f"Success: {success}/{total}")
+    print(f"Failed: {failed}/{total}")
+
+
+def scrape_casino_base_urls():
+    """Scrape all active casino base URLs."""
+    print("\n=== Scraping Casino Base URLs ===\n")
+
+    result = supabase.table("casinos")\
+        .select("id, name, base_url")\
+        .eq("is_active", True)\
+        .execute()
 
     casinos = result.data
-    print(f"Found {len(casinos)} active casinos")
+    total = len(casinos)
+    print(f"Found {total} active casinos\n")
 
-    for casino in casinos:
-        print(f"\n--- Scraping: {casino['name']} ---")
-        scrape_casino(casino["id"], casino["base_url"])
+    success = 0
+    failed = 0
+
+    for i, casino in enumerate(casinos, 1):
+        print(f"[{i}/{total}] {casino['name']}")
+
+        result = scrape_url(
+            casino_id=casino["id"],
+            url=casino["base_url"]
+        )
+
+        if result["success"]:
+            success += 1
+        else:
+            failed += 1
+
+        print()
+
+    print(f"\n=== Complete ===")
+    print(f"Success: {success}/{total}")
+    print(f"Failed: {failed}/{total}")
 
 
-def scrape_single(casino_name: str):
-    """Scrape a single casino by name."""
-    result = supabase.table("casinos").select("id, name, base_url").ilike("name", f"%{casino_name}%").execute()
+def scrape_single_casino(casino_name: str):
+    """Scrape all URLs for a specific casino by name."""
+    # Find casino
+    result = supabase.table("casinos")\
+        .select("id, name, base_url")\
+        .ilike("name", f"%{casino_name}%")\
+        .execute()
 
     if not result.data:
         print(f"Casino not found: {casino_name}")
         return
 
     casino = result.data[0]
-    print(f"Scraping: {casino['name']}")
-    scrape_casino(casino["id"], casino["base_url"])
+    print(f"\n=== Scraping: {casino['name']} ===\n")
+
+    # Get scrape configs for this casino
+    configs_result = supabase.table("scrape_configs")\
+        .select("id, name, page_url")\
+        .eq("casino_id", casino["id"])\
+        .eq("is_active", True)\
+        .execute()
+
+    configs = configs_result.data
+
+    if not configs:
+        # No configs, scrape base URL
+        print("No scrape URLs configured, using base URL")
+        scrape_url(casino["id"], casino["base_url"])
+    else:
+        print(f"Found {len(configs)} configured URLs\n")
+        for config in configs:
+            print(f"- {config['name']}")
+            scrape_url(casino["id"], config["page_url"], config["id"])
+            print()
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Casino Scraper")
+    parser.add_argument("--all", action="store_true", help="Scrape all configured URLs")
+    parser.add_argument("--base", action="store_true", help="Scrape all casino base URLs only")
+    parser.add_argument("--casino", type=str, help="Scrape a specific casino by name")
+    parser.add_argument("--url", type=str, help="Scrape a specific URL")
+    parser.add_argument("--casino-id", type=str, help="Casino ID (required with --url)")
+
+    args = parser.parse_args()
+
+    if args.url:
+        if not args.casino_id:
+            print("Error: --casino-id is required when using --url")
+            sys.exit(1)
+        print(f"\n=== Scraping URL ===\n")
+        scrape_url(args.casino_id, args.url)
+
+    elif args.casino:
+        scrape_single_casino(args.casino)
+
+    elif args.base:
+        scrape_casino_base_urls()
+
+    else:
+        # Default: scrape all configured URLs
+        scrape_all_configs()
 
 
 if __name__ == "__main__":
-    import sys
-
-    if len(sys.argv) > 1:
-        # Scrape specific casino
-        scrape_single(sys.argv[1])
-    else:
-        # Scrape all active casinos
-        scrape_all_active()
+    main()

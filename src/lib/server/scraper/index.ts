@@ -122,10 +122,46 @@ export interface ScrapeCasinoOptions {
 	saveRawHtml?: boolean;
 }
 
+export interface ScrapeSingleUrlOptions {
+	casinoId: string;
+	configId?: string;
+	url: string;
+	saveRawHtml?: boolean;
+}
+
 export interface ScrapeCasinoResult {
 	success: boolean;
 	dataId?: string;
 	error?: string;
+}
+
+interface ScrapeConfig {
+	id: string;
+	custom_prompt: string | null;
+	extraction_type: string;
+}
+
+/**
+ * Scrape a single URL directly (used by batch scraper)
+ */
+export async function scrapeSingleUrl(options: ScrapeSingleUrlOptions): Promise<ScrapeCasinoResult> {
+	const { casinoId, configId, url, saveRawHtml = true } = options;
+	const supabase = getSupabase();
+
+	// Get config if provided (for custom prompt)
+	let config: ScrapeConfig | undefined;
+	if (configId) {
+		const { data } = await supabase
+			.from('scrape_configs')
+			.select('id, custom_prompt, extraction_type')
+			.eq('id', configId)
+			.single();
+		if (data) {
+			config = data;
+		}
+	}
+
+	return scrapeSinglePage(casinoId, url, saveRawHtml, config);
 }
 
 /**
@@ -181,12 +217,6 @@ export async function scrapeCasino(options: ScrapeCasinoOptions): Promise<Scrape
 		success: successCount > 0,
 		error: successCount === 0 ? 'All pages failed to scrape' : undefined
 	};
-}
-
-interface ScrapeConfig {
-	id: string;
-	custom_prompt: string | null;
-	extraction_type: string;
 }
 
 async function scrapeSinglePage(
