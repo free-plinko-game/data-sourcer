@@ -25,6 +25,7 @@ export const load: PageServerLoad = async ({ params }) => {
 			source_url,
 			extracted_data,
 			status,
+			error_message,
 			scraped_at,
 			config:scrape_configs(name)
 		`)

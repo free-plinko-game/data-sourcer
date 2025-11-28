@@ -189,7 +189,7 @@
 				</thead>
 				<tbody>
 					{#each data.scrapedData as item}
-						<tr>
+						<tr class:failed-row={item.status === 'failed'}>
 							<td class="url-cell">
 								<a href={item.source_url} target="_blank" rel="noopener">{item.source_url}</a>
 							</td>
@@ -214,6 +214,15 @@
 								{/if}
 							</td>
 						</tr>
+						{#if item.status === 'failed' && item.error_message}
+							<tr class="error-row">
+								<td colspan="5">
+									<div class="error-detail">
+										<strong>Error:</strong> {item.error_message}
+									</div>
+								</td>
+							</tr>
+						{/if}
 					{/each}
 				</tbody>
 			</table>
@@ -457,5 +466,23 @@
 	.btn-sm {
 		padding: 0.25rem 0.5rem;
 		font-size: 0.75rem;
+	}
+
+	.failed-row {
+		opacity: 0.7;
+	}
+
+	.error-row td {
+		padding: 0 !important;
+		border-top: none !important;
+	}
+
+	.error-detail {
+		background: rgba(239, 68, 68, 0.1);
+		border-left: 3px solid var(--color-danger);
+		padding: 0.5rem 0.75rem;
+		font-size: 0.75rem;
+		color: var(--color-danger);
+		margin-bottom: 0.5rem;
 	}
 </style>
