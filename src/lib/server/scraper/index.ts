@@ -9,33 +9,56 @@ interface ScrapeResult {
 	error?: string;
 }
 
-const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
-
 /**
- * Fetch HTML from a URL using simple HTTP request
+ * Fetch HTML using Puppeteer with stealth mode to bypass bot detection
  */
 export async function scrapeUrl(url: string): Promise<ScrapeResult> {
+	let browser = null;
+
 	try {
-		const response = await fetch(url, {
-			headers: {
-				'User-Agent': USER_AGENT,
-				'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-				'Accept-Language': 'en-US,en;q=0.5',
-				'Accept-Encoding': 'gzip, deflate, br',
-				'Connection': 'keep-alive',
-				'Upgrade-Insecure-Requests': '1'
-			},
-			redirect: 'follow'
+		// Dynamic import for puppeteer-extra and stealth plugin
+		const puppeteer = await import('puppeteer-extra').then(m => m.default);
+		const StealthPlugin = await import('puppeteer-extra-plugin-stealth').then(m => m.default);
+
+		// Add stealth plugin to avoid detection
+		puppeteer.use(StealthPlugin());
+
+		// Launch browser
+		browser = await puppeteer.launch({
+			headless: true,
+			args: [
+				'--no-sandbox',
+				'--disable-setuid-sandbox',
+				'--disable-dev-shm-usage',
+				'--disable-accelerated-2d-canvas',
+				'--disable-gpu',
+				'--window-size=1920,1080'
+			]
 		});
 
-		if (!response.ok) {
-			return {
-				success: false,
-				error: `HTTP ${response.status}: ${response.statusText}`
-			};
-		}
+		const page = await browser.newPage();
 
-		const html = await response.text();
+		// Set viewport and user agent
+		await page.setViewport({ width: 1920, height: 1080 });
+		await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+
+		// Set extra headers
+		await page.setExtraHTTPHeaders({
+			'Accept-Language': 'en-US,en;q=0.9',
+			'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
+		});
+
+		// Navigate to URL
+		await page.goto(url, {
+			waitUntil: 'networkidle2',
+			timeout: 30000
+		});
+
+		// Wait a bit for any dynamic content
+		await new Promise(resolve => setTimeout(resolve, 2000));
+
+		// Get page content
+		const html = await page.content();
 		const cleanedHtml = cleanHtmlForAI(html);
 
 		return {
@@ -48,6 +71,10 @@ export async function scrapeUrl(url: string): Promise<ScrapeResult> {
 			success: false,
 			error: error instanceof Error ? error.message : 'Unknown error'
 		};
+	} finally {
+		if (browser) {
+			await browser.close();
+		}
 	}
 }
 
@@ -187,7 +214,7 @@ async function scrapeSinglePage(
 	}
 
 	try {
-		// Fetch the page HTML
+		// Fetch the page HTML using Puppeteer
 		const scrapeResult = await scrapeUrl(pageUrl);
 
 		if (!scrapeResult.success || !scrapeResult.cleanedHtml) {
