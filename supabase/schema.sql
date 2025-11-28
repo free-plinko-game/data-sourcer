@@ -14,6 +14,8 @@ CREATE TABLE IF NOT EXISTS casinos (
     password TEXT,  -- Store encrypted or use Supabase Vault for production
     notes TEXT,
     is_active BOOLEAN DEFAULT true,
+    combined_data JSONB,  -- Combined scraped data from all sources
+    combined_data_updated_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );

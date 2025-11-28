@@ -148,8 +148,16 @@
 </svelte:head>
 
 <div class="edit-casino-page">
+	<!-- Breadcrumb -->
+	<nav class="breadcrumb">
+		<a href="/casinos">All Casinos</a>
+		<span class="separator">/</span>
+		<span class="current">{data.casino.name}</span>
+	</nav>
+
 	<div class="page-header">
 		<h1>Edit Casino</h1>
+		<a href="/casinos/{data.casino.id}/data" class="btn btn-primary">View Data</a>
 	</div>
 
 	<div class="content-grid">
@@ -305,6 +313,32 @@
 </div>
 
 <style>
+	.breadcrumb {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		margin-bottom: 1rem;
+		font-size: 0.875rem;
+	}
+
+	.breadcrumb a {
+		color: var(--color-text-secondary);
+		text-decoration: none;
+	}
+
+	.breadcrumb a:hover {
+		color: var(--color-primary);
+	}
+
+	.breadcrumb .separator {
+		color: var(--color-text-secondary);
+	}
+
+	.breadcrumb .current {
+		color: var(--color-text);
+		font-weight: 500;
+	}
+
 	.page-header {
 		display: flex;
 		justify-content: space-between;

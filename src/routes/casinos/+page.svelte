@@ -49,7 +49,7 @@
 						<th>Name</th>
 						<th>URL</th>
 						<th>Status</th>
-						<th>Scrapes</th>
+						<th>Data</th>
 						<th>Actions</th>
 					</tr>
 				</thead>
@@ -70,14 +70,19 @@
 									{casino.is_active ? 'Active' : 'Inactive'}
 								</button>
 							</td>
-							<td>
-								{#if casino._count.scrapedData > 0}
-									{casino._count.scrapedData} scrapes
+							<td class="data-cell">
+								{#if casino.combined_data}
+									<a href="/casinos/{casino.id}/data" class="btn btn-primary btn-sm">View Data</a>
+								{:else if casino._count.scrapedData > 0}
+									<span class="text-muted">{casino._count.scrapedData} scrapes</span>
 								{:else}
 									<span class="text-muted">None</span>
 								{/if}
 							</td>
 							<td class="actions-cell">
+								{#if casino._count.scrapedData > 0 && !casino.combined_data}
+									<a href="/casinos/{casino.id}/data" class="btn btn-secondary btn-sm">Merge</a>
+								{/if}
 								<a href="/casinos/{casino.id}" class="btn btn-secondary btn-sm">Edit</a>
 								<button
 									class="btn btn-danger btn-sm"

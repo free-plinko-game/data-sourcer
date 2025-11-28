@@ -12,6 +12,8 @@ export const load: PageServerLoad = async () => {
 			name,
 			base_url,
 			is_active,
+			combined_data,
+			combined_data_updated_at,
 			created_at,
 			updated_at
 		`)
