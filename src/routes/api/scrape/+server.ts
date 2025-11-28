@@ -5,7 +5,7 @@ import { scrapeCasino, scrapeAllCasinos, scrapeSingleUrl } from '$lib/server/scr
 export const POST: RequestHandler = async ({ request }) => {
 	try {
 		const body = await request.json();
-		const { casinoId, configId, url, all } = body;
+		const { casinoId, configId, url, jobId, all } = body;
 
 		if (all) {
 			// Scrape all active casinos
@@ -26,6 +26,7 @@ export const POST: RequestHandler = async ({ request }) => {
 			const result = await scrapeSingleUrl({
 				casinoId,
 				configId,
+				jobId,
 				url,
 				saveRawHtml: true
 			});

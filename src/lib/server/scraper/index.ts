@@ -125,6 +125,7 @@ export interface ScrapeCasinoOptions {
 export interface ScrapeSingleUrlOptions {
 	casinoId: string;
 	configId?: string;
+	jobId?: string;
 	url: string;
 	saveRawHtml?: boolean;
 }
@@ -145,7 +146,7 @@ interface ScrapeConfig {
  * Scrape a single URL directly (used by batch scraper)
  */
 export async function scrapeSingleUrl(options: ScrapeSingleUrlOptions): Promise<ScrapeCasinoResult> {
-	const { casinoId, configId, url, saveRawHtml = true } = options;
+	const { casinoId, configId, jobId, url, saveRawHtml = true } = options;
 	const supabase = getSupabase();
 
 	// Get config if provided (for custom prompt)
@@ -161,7 +162,7 @@ export async function scrapeSingleUrl(options: ScrapeSingleUrlOptions): Promise<
 		}
 	}
 
-	return scrapeSinglePage(casinoId, url, saveRawHtml, config);
+	return scrapeSinglePage(casinoId, url, saveRawHtml, config, jobId);
 }
 
 /**
@@ -223,7 +224,8 @@ async function scrapeSinglePage(
 	casinoId: string,
 	pageUrl: string,
 	saveRawHtml: boolean,
-	config?: ScrapeConfig
+	config?: ScrapeConfig,
+	jobId?: string
 ): Promise<ScrapeCasinoResult> {
 	const supabase = getSupabase();
 
@@ -233,6 +235,7 @@ async function scrapeSinglePage(
 		.insert({
 			casino_id: casinoId,
 			config_id: config?.id || null,
+			job_id: jobId || null,
 			source_url: pageUrl,
 			status: 'processing'
 		})

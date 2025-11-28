@@ -32,11 +32,27 @@ CREATE TABLE IF NOT EXISTS scrape_configs (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Scrape jobs table (for batch scraping with combined results)
+CREATE TABLE IF NOT EXISTS scrape_jobs (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    casino_id UUID REFERENCES casinos(id) ON DELETE CASCADE,
+    name TEXT,
+    status TEXT DEFAULT 'pending',
+    total_urls INTEGER DEFAULT 0,
+    completed_urls INTEGER DEFAULT 0,
+    failed_urls INTEGER DEFAULT 0,
+    combined_data JSONB,
+    error_message TEXT,
+    started_at TIMESTAMPTZ DEFAULT NOW(),
+    completed_at TIMESTAMPTZ
+);
+
 -- Scraped data table
 CREATE TABLE IF NOT EXISTS scraped_data (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     casino_id UUID NOT NULL REFERENCES casinos(id) ON DELETE CASCADE,
     config_id UUID REFERENCES scrape_configs(id) ON DELETE SET NULL,
+    job_id UUID REFERENCES scrape_jobs(id) ON DELETE SET NULL,
     source_url TEXT NOT NULL,
     raw_html TEXT,
     extracted_data JSONB,
@@ -48,8 +64,11 @@ CREATE TABLE IF NOT EXISTS scraped_data (
 
 -- Indexes for better query performance
 CREATE INDEX IF NOT EXISTS idx_scrape_configs_casino_id ON scrape_configs(casino_id);
+CREATE INDEX IF NOT EXISTS idx_scrape_jobs_casino_id ON scrape_jobs(casino_id);
+CREATE INDEX IF NOT EXISTS idx_scrape_jobs_status ON scrape_jobs(status);
 CREATE INDEX IF NOT EXISTS idx_scraped_data_casino_id ON scraped_data(casino_id);
 CREATE INDEX IF NOT EXISTS idx_scraped_data_config_id ON scraped_data(config_id);
+CREATE INDEX IF NOT EXISTS idx_scraped_data_job_id ON scraped_data(job_id);
 CREATE INDEX IF NOT EXISTS idx_scraped_data_status ON scraped_data(status);
 CREATE INDEX IF NOT EXISTS idx_scraped_data_scraped_at ON scraped_data(scraped_at DESC);
 

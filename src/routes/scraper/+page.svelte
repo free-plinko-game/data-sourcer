@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { PageData } from './$types';
+	import { goto } from '$app/navigation';
 
 	let { data }: { data: PageData } = $props();
 
@@ -10,10 +11,14 @@
 	// Batch scraping state
 	let batchProgress = $state<{
 		running: boolean;
+		jobId: string | null;
 		total: number;
 		completed: number;
+		failed: number;
 		current: string;
 		results: Array<{ url: string; success: boolean; message: string }>;
+		merging: boolean;
+		merged: boolean;
 	} | null>(null);
 
 	async function scrapeOne() {
@@ -44,32 +49,6 @@
 		}
 	}
 
-	async function scrapeAll() {
-		scraping = true;
-		scrapeResult = null;
-
-		try {
-			const response = await fetch('/api/scrape', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ all: true })
-			});
-
-			const result = await response.json();
-			scrapeResult = {
-				success: result.success,
-				message: result.message || result.error || 'Unknown result'
-			};
-		} catch (err) {
-			scrapeResult = {
-				success: false,
-				message: 'Network error'
-			};
-		} finally {
-			scraping = false;
-		}
-	}
-
 	async function runBatchScrape() {
 		if (data.scrapeConfigs.length === 0) {
 			scrapeResult = {
@@ -79,14 +58,36 @@
 			return;
 		}
 
+		// Step 1: Create a job to track this batch
+		let jobId: string | null = null;
+		try {
+			const jobResponse = await fetch('/api/jobs', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					name: `Batch Scrape - ${new Date().toLocaleString()}`,
+					total_urls: data.scrapeConfigs.length
+				})
+			});
+			const job = await jobResponse.json();
+			jobId = job.id;
+		} catch (err) {
+			console.error('Failed to create job:', err);
+		}
+
 		batchProgress = {
 			running: true,
+			jobId,
 			total: data.scrapeConfigs.length,
 			completed: 0,
+			failed: 0,
 			current: '',
-			results: []
+			results: [],
+			merging: false,
+			merged: false
 		};
 
+		// Step 2: Scrape each URL with the job ID
 		for (const config of data.scrapeConfigs) {
 			batchProgress = {
 				...batchProgress!,
@@ -100,19 +101,22 @@
 					body: JSON.stringify({
 						casinoId: config.casino_id,
 						configId: config.id,
+						jobId: jobId,
 						url: config.page_url
 					})
 				});
 
 				const result = await response.json();
+				const success = result.success;
 				batchProgress = {
 					...batchProgress!,
 					completed: batchProgress!.completed + 1,
+					failed: batchProgress!.failed + (success ? 0 : 1),
 					results: [
 						...batchProgress!.results,
 						{
 							url: config.page_url,
-							success: result.success,
+							success,
 							message: result.message || result.error || 'Done'
 						}
 					]
@@ -121,6 +125,7 @@
 				batchProgress = {
 					...batchProgress!,
 					completed: batchProgress!.completed + 1,
+					failed: batchProgress!.failed + 1,
 					results: [
 						...batchProgress!.results,
 						{
@@ -133,11 +138,46 @@
 			}
 		}
 
+		// Step 3: Merge results if we have a job
 		batchProgress = {
 			...batchProgress!,
 			running: false,
-			current: ''
+			current: '',
+			merging: true
 		};
+
+		if (jobId) {
+			try {
+				const mergeResponse = await fetch(`/api/jobs/${jobId}/merge`, {
+					method: 'POST'
+				});
+				const mergeResult = await mergeResponse.json();
+
+				batchProgress = {
+					...batchProgress!,
+					merging: false,
+					merged: mergeResult.success
+				};
+			} catch (err) {
+				console.error('Failed to merge results:', err);
+				batchProgress = {
+					...batchProgress!,
+					merging: false,
+					merged: false
+				};
+			}
+		} else {
+			batchProgress = {
+				...batchProgress!,
+				merging: false
+			};
+		}
+	}
+
+	function viewCombinedData() {
+		if (batchProgress?.jobId) {
+			goto(`/data?job=${batchProgress.jobId}`);
+		}
 	}
 
 	function clearBatchResults() {
@@ -175,26 +215,51 @@
 			<div class="batch-progress">
 				<div class="progress-header">
 					<span>
-						{batchProgress.running ? 'Scraping...' : 'Completed'}
-						({batchProgress.completed}/{batchProgress.total})
+						{#if batchProgress.running}
+							Scraping... ({batchProgress.completed}/{batchProgress.total})
+						{:else if batchProgress.merging}
+							Merging data...
+						{:else}
+							Completed ({batchProgress.completed - batchProgress.failed}/{batchProgress.total} successful)
+						{/if}
 					</span>
-					{#if !batchProgress.running}
-						<button class="btn btn-sm btn-secondary" onclick={clearBatchResults}>
-							Clear
-						</button>
+					{#if !batchProgress.running && !batchProgress.merging}
+						<div class="progress-actions">
+							{#if batchProgress.merged && batchProgress.jobId}
+								<button class="btn btn-sm btn-primary" onclick={viewCombinedData}>
+									View Combined Data
+								</button>
+							{/if}
+							<button class="btn btn-sm btn-secondary" onclick={clearBatchResults}>
+								Clear
+							</button>
+						</div>
 					{/if}
 				</div>
 
 				<div class="progress-bar">
 					<div
 						class="progress-fill"
-						style="width: {(batchProgress.completed / batchProgress.total) * 100}%"
+						class:merging={batchProgress.merging}
+						style="width: {batchProgress.merging ? 100 : (batchProgress.completed / batchProgress.total) * 100}%"
 					></div>
 				</div>
 
 				{#if batchProgress.current}
 					<div class="current-url">
 						Currently scraping: <code>{batchProgress.current}</code>
+					</div>
+				{/if}
+
+				{#if batchProgress.merging}
+					<div class="current-url">
+						Merging scraped data into combined JSON...
+					</div>
+				{/if}
+
+				{#if batchProgress.merged}
+					<div class="merge-success">
+						Data merged successfully into one combined JSON set
 					</div>
 				{/if}
 
@@ -531,5 +596,28 @@
 	.btn-sm {
 		padding: 0.25rem 0.5rem;
 		font-size: 0.75rem;
+	}
+
+	.progress-actions {
+		display: flex;
+		gap: 0.5rem;
+	}
+
+	.progress-fill.merging {
+		animation: pulse 1.5s ease-in-out infinite;
+	}
+
+	@keyframes pulse {
+		0%, 100% { opacity: 1; }
+		50% { opacity: 0.5; }
+	}
+
+	.merge-success {
+		margin-top: 0.75rem;
+		padding: 0.5rem;
+		background: rgba(34, 197, 94, 0.1);
+		border-radius: 0.25rem;
+		color: var(--color-success);
+		font-size: 0.875rem;
 	}
 </style>
