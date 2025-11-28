@@ -14,7 +14,7 @@ dist/
 # Database
 *.db
 *.db-journal
-data/
+/data/
 
 # IDE
 .vscode/
