@@ -1,0 +1,887 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LLM Citation Tracker</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#f0f9ff',
+                            500: '#0ea5e9',
+                            600: '#0284c7',
+                            700: '#0369a1',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        .tab-active {
+            border-bottom: 2px solid #0ea5e9;
+            color: #0ea5e9;
+        }
+
+        .loading {
+            opacity: 0.6;
+            pointer-events: none;
+        }
+
+        .fade-in {
+            animation: fadeIn 0.3s ease-in;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+            }
+
+            to {
+                opacity: 1;
+            }
+        }
+
+        .category-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+        .cat-informational { background: #dbeafe; color: #1e40af; }
+        .cat-transactional { background: #dcfce7; color: #166534; }
+        .cat-branded { background: #fef3c7; color: #92400e; }
+        .cat-long_tail { background: #f3e8ff; color: #6b21a8; }
+    </style>
+</head>
+
+<body class="bg-gray-50 min-h-screen">
+    <!-- Header -->
+    <header class="bg-white border-b border-gray-200 sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 py-4">
+            <div class="flex items-center justify-between">
+                <div>
+                    <h1 class="text-2xl font-bold text-gray-900">LLM Citation Tracker</h1>
+                    <p class="text-sm text-gray-500">Competitive intelligence for AI search visibility</p>
+                </div>
+                <button onclick="loadStats()"
+                    class="text-sm bg-gray-100 hover:bg-gray-200 px-4 py-2 rounded-lg transition">
+                    View Stats
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Navigation Tabs -->
+    <nav class="bg-white border-b border-gray-200">
+        <div class="max-w-7xl mx-auto px-4">
+            <div class="flex space-x-8">
+                <button onclick="showTab('query')" id="tab-query" class="tab-active px-1 py-4 text-sm font-medium">
+                    Query Analysis
+                </button>
+                <button onclick="showTab('pattern')" id="tab-pattern"
+                    class="px-1 py-4 text-sm font-medium text-gray-500 hover:text-gray-700">
+                    Pattern Testing
+                </button>
+                <button onclick="showTab('competitor')" id="tab-competitor"
+                    class="px-1 py-4 text-sm font-medium text-gray-500 hover:text-gray-700">
+                    Competitor Visibility
+                </button>
+                <button onclick="showTab('page')" id="tab-page"
+                    class="px-1 py-4 text-sm font-medium text-gray-500 hover:text-gray-700">
+                    Page Analysis
+                </button>
+                <button onclick="showTab('manage')" id="tab-manage"
+                    class="px-1 py-4 text-sm font-medium text-gray-500 hover:text-gray-700">
+                    Manage Competitors
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="max-w-7xl mx-auto px-4 py-8">
+
+        <!-- Query Analysis Tab -->
+        <div id="panel-query" class="space-y-6">
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                <h2 class="text-lg font-semibold mb-4">Run a Query & Extract Citations</h2>
+                <p class="text-gray-600 text-sm mb-4">Enter a search query to see which brands/domains appear in LLM
+                    citations.</p>
+
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Search Query</label>
+                        <textarea id="query-input" rows="3"
+                            class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
+                            placeholder="e.g., What are the best project management tools for remote teams?"></textarea>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Track Specific Competitors
+                            (optional)</label>
+                        <input type="text" id="query-competitors"
+                            class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-brand-500"
+                            placeholder="e.g., asana.com, monday.com, notion.so (comma-separated)">
+                    </div>
+
+                    <button onclick="runQuery()" id="query-btn"
+                        class="bg-brand-600 hover:bg-brand-700 text-white font-medium px-6 py-2 rounded-lg transition">
+                        Run Query
+                    </button>
+                </div>
+            </div>
+
+            <div id="query-results" class="hidden bg-white rounded-xl shadow-sm border border-gray-200 p-6 fade-in">
+                <h3 class="text-lg font-semibold mb-4">Results</h3>
+                <div id="query-results-content"></div>
+            </div>
+        </div>
+
+        <!-- Pattern Testing Tab -->
+        <div id="panel-pattern" class="hidden space-y-6">
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                <h2 class="text-lg font-semibold mb-4">Query Pattern Testing</h2>
+                <p class="text-gray-600 text-sm mb-4">Test how different query phrasings affect which domains get cited.
+                    Enter a topic and we'll generate variations across informational, transactional, branded, and long-tail queries.</p>
+
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Topic</label>
+                        <input type="text" id="pattern-topic"
+                            class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-brand-500"
+                            placeholder="e.g., project management software, CRM tools, email marketing">
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Brands to Include in Branded Queries (optional)</label>
+                        <input type="text" id="pattern-brands"
+                            class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-brand-500"
+                            placeholder="e.g., Asana, Monday, Notion (comma-separated)">
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Domains to Track (optional)</label>
+                        <input type="text" id="pattern-track-domains"
+                            class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-brand-500"
+                            placeholder="e.g., asana.com, monday.com (comma-separated)">
+                    </div>
+
+                    <div class="flex gap-4">
+                        <button onclick="generateVariations()" id="generate-btn"
+                            class="bg-gray-600 hover:bg-gray-700 text-white font-medium px-6 py-2 rounded-lg transition">
+                            1. Generate Variations
+                        </button>
+                        <button onclick="runPatternTest()" id="pattern-btn" disabled
+                            class="bg-brand-600 hover:bg-brand-700 text-white font-medium px-6 py-2 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed">
+                            2. Run Pattern Test
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Generated Variations Preview -->
+            <div id="variations-preview" class="hidden bg-white rounded-xl shadow-sm border border-gray-200 p-6 fade-in">
+                <h3 class="text-lg font-semibold mb-4">Generated Query Variations</h3>
+                <p class="text-sm text-gray-500 mb-4">Review and edit the generated queries before running the test.</p>
+                <div id="variations-content"></div>
+            </div>
+
+            <!-- Pattern Test Results -->
+            <div id="pattern-results" class="hidden bg-white rounded-xl shadow-sm border border-gray-200 p-6 fade-in">
+                <h3 class="text-lg font-semibold mb-4">Pattern Analysis Results</h3>
+                <div id="pattern-results-content"></div>
+            </div>
+        </div>
+
+        <!-- Competitor Visibility Tab -->
+        <div id="panel-competitor" class="hidden space-y-6">
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                <h2 class="text-lg font-semibold mb-4">Check Competitor Visibility</h2>
+                <p class="text-gray-600 text-sm mb-4">See how often a competitor appears across multiple relevant
+                    queries.</p>
+
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Competitor Domain</label>
+                        <input type="text" id="visibility-competitor"
+                            class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-brand-500"
+                            placeholder="e.g., competitor.com">
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Test Queries (one per line)</label>
+                        <textarea id="visibility-queries" rows="6"
+                            class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-brand-500"
+                            placeholder="Best CRM software for small business
+Top customer relationship management tools
+CRM comparison 2024
+Enterprise CRM solutions"></textarea>
+                    </div>
+
+                    <button onclick="checkVisibility()" id="visibility-btn"
+                        class="bg-brand-600 hover:bg-brand-700 text-white font-medium px-6 py-2 rounded-lg transition">
+                        Check Visibility
+                    </button>
+                </div>
+            </div>
+
+            <div id="visibility-results"
+                class="hidden bg-white rounded-xl shadow-sm border border-gray-200 p-6 fade-in">
+                <h3 class="text-lg font-semibold mb-4">Visibility Report</h3>
+                <div id="visibility-results-content"></div>
+            </div>
+        </div>
+
+        <!-- Page Analysis Tab -->
+        <div id="panel-page" class="hidden space-y-6">
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                <h2 class="text-lg font-semibold mb-4">Analyze Page for Citation Factors</h2>
+                <p class="text-gray-600 text-sm mb-4">Understand what makes a page likely to be cited by LLMs.</p>
+
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Page URL</label>
+                        <input type="url" id="page-url"
+                            class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-brand-500"
+                            placeholder="https://competitor.com/their-best-page">
+                    </div>
+
+                    <button onclick="analyzePage()" id="page-btn"
+                        class="bg-brand-600 hover:bg-brand-700 text-white font-medium px-6 py-2 rounded-lg transition">
+                        Analyze Page
+                    </button>
+                </div>
+            </div>
+
+            <div id="page-results" class="hidden bg-white rounded-xl shadow-sm border border-gray-200 p-6 fade-in">
+                <h3 class="text-lg font-semibold mb-4">Citation Analysis</h3>
+                <div id="page-results-content"></div>
+            </div>
+        </div>
+
+        <!-- Manage Competitors Tab -->
+        <div id="panel-manage" class="hidden space-y-6">
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                <h2 class="text-lg font-semibold mb-4">Manage Competitors</h2>
+                <p class="text-gray-600 text-sm mb-4">Add competitors to track across all your queries.</p>
+
+                <div class="flex gap-4 mb-6">
+                    <input type="text" id="new-competitor-name"
+                        class="flex-1 border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-brand-500"
+                        placeholder="Competitor Name">
+                    <input type="text" id="new-competitor-domain"
+                        class="flex-1 border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-brand-500"
+                        placeholder="domain.com">
+                    <button onclick="addCompetitor()"
+                        class="bg-green-600 hover:bg-green-700 text-white font-medium px-6 py-2 rounded-lg transition">
+                        + Add
+                    </button>
+                </div>
+
+                <div id="competitors-list" class="space-y-2"></div>
+            </div>
+        </div>
+
+        <!-- Stats Modal -->
+        <div id="stats-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div class="bg-white rounded-xl shadow-xl max-w-2xl w-full mx-4 max-h-[80vh] overflow-y-auto">
+                <div class="p-6">
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="text-xl font-bold">Overall Statistics</h2>
+                        <button onclick="closeStats()"
+                            class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+                    </div>
+                    <div id="stats-content"></div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // Store generated variations globally
+        let currentVariations = null;
+        let currentTopic = null;
+
+        // Tab Management
+        function showTab(tabName) {
+            ['query', 'pattern', 'competitor', 'page', 'manage'].forEach(tab => {
+                document.getElementById(`panel-${tab}`).classList.add('hidden');
+                document.getElementById(`tab-${tab}`).classList.remove('tab-active');
+                document.getElementById(`tab-${tab}`).classList.add('text-gray-500');
+            });
+            document.getElementById(`panel-${tabName}`).classList.remove('hidden');
+            document.getElementById(`tab-${tabName}`).classList.add('tab-active');
+            document.getElementById(`tab-${tabName}`).classList.remove('text-gray-500');
+
+            if (tabName === 'manage') loadCompetitors();
+        }
+
+        // Query Analysis
+        async function runQuery() {
+            const query = document.getElementById('query-input').value.trim();
+            const competitors = document.getElementById('query-competitors').value
+                .split(',').map(c => c.trim()).filter(c => c);
+
+            if (!query) return alert('Please enter a query');
+
+            const btn = document.getElementById('query-btn');
+            btn.textContent = 'Searching...';
+            btn.classList.add('loading');
+
+            try {
+                const res = await fetch('/api/query', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ query, competitors })
+                });
+                const data = await res.json();
+
+                const resultsDiv = document.getElementById('query-results');
+                const contentDiv = document.getElementById('query-results-content');
+
+                let html = `
+                    <div class="mb-4 p-4 bg-gray-50 rounded-lg">
+                        <p class="font-medium text-gray-700">Query: "${data.query}"</p>
+                    </div>
+                `;
+
+                if (data.cited_sources && data.cited_sources.length > 0) {
+                    html += `<h4 class="font-medium mb-3">Cited Sources (${data.cited_sources.length})</h4>`;
+                    html += '<div class="space-y-2">';
+                    data.cited_sources.forEach(source => {
+                        const isCompetitor = competitors.some(c =>
+                            source.domain?.toLowerCase().includes(c.toLowerCase())
+                        );
+                        html += `
+                            <div class="flex items-start gap-3 p-3 rounded-lg ${isCompetitor ? 'bg-yellow-50 border border-yellow-200' : 'bg-gray-50'}">
+                                <span class="text-lg">${isCompetitor ? '!' : '-'}</span>
+                                <div>
+                                    <p class="font-medium">${source.domain || 'Unknown'}</p>
+                                    <p class="text-sm text-gray-600">${source.title || ''}</p>
+                                    <p class="text-xs text-gray-500 mt-1">${source.relevance || ''}</p>
+                                </div>
+                            </div>
+                        `;
+                    });
+                    html += '</div>';
+                } else {
+                    html += '<p class="text-gray-500">No structured citations extracted. Check the raw response below.</p>';
+                }
+
+                html += `
+                    <details class="mt-6">
+                        <summary class="cursor-pointer text-sm text-gray-500 hover:text-gray-700">View Full Response</summary>
+                        <div class="mt-2 p-4 bg-gray-50 rounded-lg text-sm whitespace-pre-wrap max-h-96 overflow-y-auto">
+                            ${data.response || 'No response'}
+                        </div>
+                    </details>
+                `;
+
+                contentDiv.innerHTML = html;
+                resultsDiv.classList.remove('hidden');
+
+            } catch (err) {
+                alert('Error: ' + err.message);
+            } finally {
+                btn.textContent = 'Run Query';
+                btn.classList.remove('loading');
+            }
+        }
+
+        // Pattern Testing - Generate Variations
+        async function generateVariations() {
+            const topic = document.getElementById('pattern-topic').value.trim();
+            const brands = document.getElementById('pattern-brands').value
+                .split(',').map(b => b.trim()).filter(b => b);
+
+            if (!topic) return alert('Please enter a topic');
+
+            const btn = document.getElementById('generate-btn');
+            btn.textContent = 'Generating...';
+            btn.classList.add('loading');
+
+            try {
+                const res = await fetch('/api/pattern-test/generate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ topic, brands })
+                });
+                const data = await res.json();
+
+                if (data.error) {
+                    alert('Error: ' + data.error);
+                    return;
+                }
+
+                currentVariations = data.variations;
+                currentTopic = topic;
+
+                // Display variations
+                const previewDiv = document.getElementById('variations-preview');
+                const contentDiv = document.getElementById('variations-content');
+
+                let html = '<div class="grid grid-cols-1 md:grid-cols-2 gap-4">';
+
+                const categoryLabels = {
+                    'informational': 'Informational',
+                    'transactional': 'Transactional',
+                    'branded': 'Branded',
+                    'long_tail': 'Long-Tail'
+                };
+
+                for (const [cat, queries] of Object.entries(data.variations || {})) {
+                    html += `
+                        <div class="p-4 bg-gray-50 rounded-lg">
+                            <h4 class="font-medium mb-2">
+                                <span class="category-badge cat-${cat}">${categoryLabels[cat] || cat}</span>
+                            </h4>
+                            <ul class="space-y-1 text-sm">
+                                ${queries.map(q => `<li class="text-gray-700">• ${q}</li>`).join('')}
+                            </ul>
+                        </div>
+                    `;
+                }
+                html += '</div>';
+
+                contentDiv.innerHTML = html;
+                previewDiv.classList.remove('hidden');
+
+                // Enable run button
+                document.getElementById('pattern-btn').disabled = false;
+
+            } catch (err) {
+                alert('Error: ' + err.message);
+            } finally {
+                btn.textContent = '1. Generate Variations';
+                btn.classList.remove('loading');
+            }
+        }
+
+        // Pattern Testing - Run Full Test
+        async function runPatternTest() {
+            if (!currentVariations || !currentTopic) {
+                return alert('Please generate variations first');
+            }
+
+            const trackDomains = document.getElementById('pattern-track-domains').value
+                .split(',').map(d => d.trim()).filter(d => d);
+
+            const btn = document.getElementById('pattern-btn');
+            const totalQueries = Object.values(currentVariations).flat().length;
+            btn.textContent = `Running ${totalQueries} queries...`;
+            btn.classList.add('loading');
+
+            try {
+                const res = await fetch('/api/pattern-test/run', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        topic: currentTopic,
+                        variations: currentVariations,
+                        track_domains: trackDomains
+                    })
+                });
+                const data = await res.json();
+
+                if (data.error) {
+                    alert('Error: ' + data.error);
+                    return;
+                }
+
+                // Display results
+                const resultsDiv = document.getElementById('pattern-results');
+                const contentDiv = document.getElementById('pattern-results-content');
+
+                let html = '';
+
+                // Insights section
+                if (data.insights && data.insights.length > 0) {
+                    html += `
+                        <div class="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                            <h4 class="font-semibold text-blue-800 mb-2">Key Insights</h4>
+                            <ul class="space-y-1 text-sm text-blue-700">
+                                ${data.insights.map(i => `<li>• ${i}</li>`).join('')}
+                            </ul>
+                        </div>
+                    `;
+                }
+
+                // Top domains overall
+                if (data.domain_frequency && Object.keys(data.domain_frequency).length > 0) {
+                    html += `
+                        <div class="mb-6">
+                            <h4 class="font-semibold mb-3">Top Cited Domains (Overall)</h4>
+                            <div class="flex flex-wrap gap-2">
+                                ${Object.entries(data.domain_frequency).slice(0, 10).map(([domain, count]) => `
+                                    <span class="px-3 py-1 bg-gray-100 rounded-full text-sm">
+                                        ${domain} <span class="font-medium">(${count})</span>
+                                    </span>
+                                `).join('')}
+                            </div>
+                        </div>
+                    `;
+                }
+
+                // Results by category
+                html += '<h4 class="font-semibold mb-3">Results by Query Category</h4>';
+                html += '<div class="space-y-4">';
+
+                const categoryLabels = {
+                    'informational': 'Informational',
+                    'transactional': 'Transactional',
+                    'branded': 'Branded',
+                    'long_tail': 'Long-Tail'
+                };
+
+                for (const [cat, catData] of Object.entries(data.by_category || {})) {
+                    html += `
+                        <div class="border border-gray-200 rounded-lg overflow-hidden">
+                            <div class="bg-gray-50 px-4 py-2 flex items-center justify-between">
+                                <span class="category-badge cat-${cat}">${categoryLabels[cat] || cat}</span>
+                                <span class="text-sm text-gray-600">${catData.total_citations} citations from ${catData.queries?.length || 0} queries</span>
+                            </div>
+                            <div class="p-4">
+                                <div class="mb-3">
+                                    <span class="text-sm font-medium">Top domains: </span>
+                                    <span class="text-sm text-gray-600">
+                                        ${Object.entries(catData.domain_counts || {}).sort((a,b) => b[1]-a[1]).slice(0,5).map(([d,c]) => `${d} (${c})`).join(', ') || 'None'}
+                                    </span>
+                                </div>
+                                <details class="text-sm">
+                                    <summary class="cursor-pointer text-gray-500 hover:text-gray-700">View all queries</summary>
+                                    <div class="mt-2 space-y-2">
+                                        ${(catData.queries || []).map(q => `
+                                            <div class="p-2 bg-gray-50 rounded">
+                                                <p class="font-medium">${q.query}</p>
+                                                <p class="text-gray-600 text-xs mt-1">
+                                                    Cited: ${q.cited_domains?.join(', ') || 'None'}
+                                                    ${q.tracked_found?.length ? `<span class="text-yellow-600 font-medium"> | Tracked: ${q.tracked_found.join(', ')}</span>` : ''}
+                                                </p>
+                                            </div>
+                                        `).join('')}
+                                    </div>
+                                </details>
+                            </div>
+                        </div>
+                    `;
+                }
+                html += '</div>';
+
+                contentDiv.innerHTML = html;
+                resultsDiv.classList.remove('hidden');
+
+            } catch (err) {
+                alert('Error: ' + err.message);
+            } finally {
+                btn.textContent = '2. Run Pattern Test';
+                btn.classList.remove('loading');
+            }
+        }
+
+        // Competitor Visibility Check
+        async function checkVisibility() {
+            const competitor = document.getElementById('visibility-competitor').value.trim();
+            const queries = document.getElementById('visibility-queries').value
+                .split('\n').map(q => q.trim()).filter(q => q);
+
+            if (!competitor || queries.length === 0) {
+                return alert('Please enter a competitor and at least one query');
+            }
+
+            const btn = document.getElementById('visibility-btn');
+            btn.textContent = `Checking ${queries.length} queries...`;
+            btn.classList.add('loading');
+
+            try {
+                const res = await fetch('/api/competitor-check', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ competitor, queries })
+                });
+                const data = await res.json();
+
+                const resultsDiv = document.getElementById('visibility-results');
+                const contentDiv = document.getElementById('visibility-results-content');
+
+                const rate = data.visibility_rate?.toFixed(1) || 0;
+                const rateColor = rate >= 50 ? 'text-red-600' : rate >= 25 ? 'text-yellow-600' : 'text-green-600';
+
+                let html = `
+                    <div class="grid grid-cols-3 gap-4 mb-6">
+                        <div class="bg-gray-50 rounded-lg p-4 text-center">
+                            <p class="text-3xl font-bold">${data.total_queries || 0}</p>
+                            <p class="text-sm text-gray-600">Queries Tested</p>
+                        </div>
+                        <div class="bg-gray-50 rounded-lg p-4 text-center">
+                            <p class="text-3xl font-bold">${data.appearances || 0}</p>
+                            <p class="text-sm text-gray-600">Times Found</p>
+                        </div>
+                        <div class="bg-gray-50 rounded-lg p-4 text-center">
+                            <p class="text-3xl font-bold ${rateColor}">${rate}%</p>
+                            <p class="text-sm text-gray-600">Visibility Rate</p>
+                        </div>
+                    </div>
+
+                    <h4 class="font-medium mb-3">Detailed Results</h4>
+                    <div class="space-y-2">
+                `;
+
+                (data.detailed_results || []).forEach(result => {
+                    html += `
+                        <div class="p-3 rounded-lg ${result.competitor_found ? 'bg-red-50 border border-red-200' : 'bg-green-50 border border-green-200'}">
+                            <div class="flex items-center gap-2">
+                                <span>${result.competitor_found ? '!' : '+'}</span>
+                                <span class="font-medium">${result.query}</span>
+                            </div>
+                            ${result.all_citations?.length ? `
+                                <p class="text-xs text-gray-500 mt-1">
+                                    Cited: ${result.all_citations.map(c => c.domain).join(', ')}
+                                </p>
+                            ` : ''}
+                        </div>
+                    `;
+                });
+
+                html += '</div>';
+
+                contentDiv.innerHTML = html;
+                resultsDiv.classList.remove('hidden');
+
+            } catch (err) {
+                alert('Error: ' + err.message);
+            } finally {
+                btn.textContent = 'Check Visibility';
+                btn.classList.remove('loading');
+            }
+        }
+
+        // Page Analysis
+        async function analyzePage() {
+            const url = document.getElementById('page-url').value.trim();
+
+            if (!url) return alert('Please enter a URL');
+
+            const btn = document.getElementById('page-btn');
+            btn.textContent = 'Analyzing...';
+            btn.classList.add('loading');
+
+            try {
+                const res = await fetch('/api/analyze-page', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url })
+                });
+                const data = await res.json();
+
+                const resultsDiv = document.getElementById('page-results');
+                const contentDiv = document.getElementById('page-results-content');
+
+                let html = '';
+
+                if (data.overall_citation_score) {
+                    const score = data.overall_citation_score;
+                    const scoreColor = score >= 7 ? 'text-green-600' : score >= 4 ? 'text-yellow-600' : 'text-red-600';
+
+                    html = `
+                        <div class="flex items-center gap-6 mb-6 p-4 bg-gray-50 rounded-lg">
+                            <div class="text-center">
+                                <p class="text-4xl font-bold ${scoreColor}">${score}/10</p>
+                                <p class="text-sm text-gray-600">Citation Score</p>
+                            </div>
+                            <div>
+                                <p class="font-medium">${data.url}</p>
+                                <p class="text-sm text-gray-600">Content Type: ${data.content_type || 'Unknown'}</p>
+                            </div>
+                        </div>
+                    `;
+
+                    if (data.citation_factors) {
+                        html += '<h4 class="font-medium mb-3">Citation Factors</h4>';
+                        html += '<div class="grid grid-cols-2 gap-4 mb-6">';
+                        const factors = data.citation_factors;
+                        for (const [key, value] of Object.entries(factors)) {
+                            html += `
+                                <div class="p-3 bg-gray-50 rounded-lg">
+                                    <p class="text-sm font-medium text-gray-700">${key.replace(/_/g, ' ').toUpperCase()}</p>
+                                    <p class="text-sm text-gray-600 mt-1">${Array.isArray(value) ? value.join(', ') : value}</p>
+                                </div>
+                            `;
+                        }
+                        html += '</div>';
+                    }
+
+                    if (data.strengths?.length) {
+                        html += '<h4 class="font-medium mb-2 text-green-700">Strengths</h4>';
+                        html += '<ul class="list-disc list-inside mb-4 text-sm text-gray-600">';
+                        data.strengths.forEach(s => html += `<li>${s}</li>`);
+                        html += '</ul>';
+                    }
+
+                    if (data.weaknesses?.length) {
+                        html += '<h4 class="font-medium mb-2 text-red-700">Weaknesses</h4>';
+                        html += '<ul class="list-disc list-inside mb-4 text-sm text-gray-600">';
+                        data.weaknesses.forEach(w => html += `<li>${w}</li>`);
+                        html += '</ul>';
+                    }
+
+                    if (data.recommendations?.length) {
+                        html += '<h4 class="font-medium mb-2 text-blue-700">Recommendations</h4>';
+                        html += '<ul class="list-disc list-inside text-sm text-gray-600">';
+                        data.recommendations.forEach(r => html += `<li>${r}</li>`);
+                        html += '</ul>';
+                    }
+                } else {
+                    html = `<pre class="bg-gray-50 p-4 rounded-lg text-sm overflow-auto">${JSON.stringify(data, null, 2)}</pre>`;
+                }
+
+                contentDiv.innerHTML = html;
+                resultsDiv.classList.remove('hidden');
+
+            } catch (err) {
+                alert('Error: ' + err.message);
+            } finally {
+                btn.textContent = 'Analyze Page';
+                btn.classList.remove('loading');
+            }
+        }
+
+        // Competitor Management
+        async function loadCompetitors() {
+            try {
+                const res = await fetch('/api/competitors');
+                const competitors = await res.json();
+
+                const listDiv = document.getElementById('competitors-list');
+
+                if (competitors.length === 0) {
+                    listDiv.innerHTML = '<p class="text-gray-500 text-center py-4">No competitors added yet</p>';
+                    return;
+                }
+
+                listDiv.innerHTML = competitors.map(c => `
+                    <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                        <div>
+                            <span class="font-medium">${c.name}</span>
+                            <span class="text-gray-500 text-sm ml-2">${c.domain}</span>
+                        </div>
+                        <button onclick="deleteCompetitor(${c.id})"
+                            class="text-red-500 hover:text-red-700 text-sm">Delete</button>
+                    </div>
+                `).join('');
+
+            } catch (err) {
+                console.error('Error loading competitors:', err);
+            }
+        }
+
+        async function addCompetitor() {
+            const name = document.getElementById('new-competitor-name').value.trim();
+            const domain = document.getElementById('new-competitor-domain').value.trim();
+
+            if (!name || !domain) return alert('Please enter name and domain');
+
+            try {
+                await fetch('/api/competitors', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, domain })
+                });
+
+                document.getElementById('new-competitor-name').value = '';
+                document.getElementById('new-competitor-domain').value = '';
+                loadCompetitors();
+
+            } catch (err) {
+                alert('Error adding competitor');
+            }
+        }
+
+        async function deleteCompetitor(id) {
+            if (!confirm('Delete this competitor?')) return;
+
+            try {
+                await fetch('/api/competitors', {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id })
+                });
+                loadCompetitors();
+            } catch (err) {
+                alert('Error deleting competitor');
+            }
+        }
+
+        // Stats Modal
+        async function loadStats() {
+            try {
+                const res = await fetch('/api/stats');
+                const stats = await res.json();
+
+                let html = `
+                    <div class="grid grid-cols-2 gap-4 mb-6">
+                        <div class="bg-brand-50 rounded-lg p-4 text-center">
+                            <p class="text-3xl font-bold text-brand-600">${stats.total_queries}</p>
+                            <p class="text-sm text-gray-600">Total Queries</p>
+                        </div>
+                        <div class="bg-brand-50 rounded-lg p-4 text-center">
+                            <p class="text-3xl font-bold text-brand-600">${stats.total_citations}</p>
+                            <p class="text-sm text-gray-600">Total Citations</p>
+                        </div>
+                    </div>
+                `;
+
+                if (stats.top_domains?.length) {
+                    html += '<h4 class="font-medium mb-3">Most Cited Domains</h4>';
+                    html += '<div class="space-y-2 mb-6">';
+                    stats.top_domains.forEach((d, i) => {
+                        html += `
+                            <div class="flex items-center justify-between p-2 bg-gray-50 rounded">
+                                <span>${i + 1}. ${d.domain}</span>
+                                <span class="font-medium">${d.count}</span>
+                            </div>
+                        `;
+                    });
+                    html += '</div>';
+                }
+
+                if (stats.competitor_citations?.length) {
+                    html += '<h4 class="font-medium mb-3">Competitor Citations</h4>';
+                    html += '<div class="space-y-2">';
+                    stats.competitor_citations.forEach(c => {
+                        html += `
+                            <div class="flex items-center justify-between p-2 bg-yellow-50 rounded">
+                                <span>${c.name} (${c.domain})</span>
+                                <span class="font-medium">${c.citations}</span>
+                            </div>
+                        `;
+                    });
+                    html += '</div>';
+                }
+
+                document.getElementById('stats-content').innerHTML = html;
+                document.getElementById('stats-modal').classList.remove('hidden');
+
+            } catch (err) {
+                alert('Error loading stats');
+            }
+        }
+
+        function closeStats() {
+            document.getElementById('stats-modal').classList.add('hidden');
+        }
+
+        // Close modal on outside click
+        document.getElementById('stats-modal').addEventListener('click', function (e) {
+            if (e.target === this) closeStats();
+        });
+    </script>
+</body>
+
+</html>

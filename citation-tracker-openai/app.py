@@ -70,6 +70,13 @@ def init_db():
                 analysis TEXT,
                 analyzed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
+
+            CREATE TABLE IF NOT EXISTS pattern_tests (
+                id INTEGER PRIMARY KEY,
+                topic TEXT,
+                test_results TEXT,
+                tested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
         ''')
 
 # ============ CORE ANALYSIS FUNCTIONS ============
@@ -211,6 +218,172 @@ Provide your analysis in this JSON format:
         analysis = {"raw_analysis": response_text}
 
     return analysis
+
+
+def generate_query_variations(topic, include_brands=None):
+    """Generate different query variations for pattern testing."""
+
+    brands_context = ""
+    if include_brands:
+        brands_context = f"\nInclude these brands in branded queries: {', '.join(include_brands)}"
+
+    response = client.responses.create(
+        model="gpt-4o",
+        input=f"""Generate search query variations for the topic: "{topic}"
+{brands_context}
+
+Create exactly 12 query variations across these categories:
+
+1. INFORMATIONAL (3 queries) - Questions seeking to understand/learn
+   - "what is...", "how does... work", "...explained", "guide to..."
+
+2. TRANSACTIONAL (3 queries) - Intent to take action/purchase
+   - "best...", "top... 2024", "...pricing", "buy...", "...alternatives"
+
+3. BRANDED (3 queries) - Include specific brand/company names
+   - "[brand] vs [brand]", "[brand] review", "is [brand] good for..."
+
+4. LONG-TAIL (3 queries) - Specific, detailed queries (6+ words)
+   - Very specific use cases or scenarios
+
+Return ONLY a JSON object in this exact format:
+```json
+{{
+    "topic": "{topic}",
+    "variations": {{
+        "informational": ["query1", "query2", "query3"],
+        "transactional": ["query1", "query2", "query3"],
+        "branded": ["query1", "query2", "query3"],
+        "long_tail": ["query1", "query2", "query3"]
+    }}
+}}
+```"""
+    )
+
+    # Extract the response text
+    response_text = ""
+    for item in response.output:
+        if item.type == "message":
+            for content in item.content:
+                if content.type == "output_text":
+                    response_text += content.text
+
+    # Parse JSON
+    try:
+        json_start = response_text.rfind("```json")
+        json_end = response_text.rfind("```", json_start + 7)
+        if json_start != -1 and json_end != -1:
+            json_str = response_text[json_start + 7:json_end].strip()
+            return json.loads(json_str)
+    except (json.JSONDecodeError, ValueError):
+        pass
+
+    return {"topic": topic, "variations": {}, "error": "Failed to generate variations"}
+
+
+def run_pattern_analysis(topic, variations, track_domains=None):
+    """Run all query variations and analyze citation patterns."""
+
+    results = {
+        "topic": topic,
+        "track_domains": track_domains or [],
+        "by_category": {},
+        "domain_frequency": {},
+        "domain_by_category": {},
+        "insights": []
+    }
+
+    all_domains = []
+
+    for category, queries in variations.items():
+        category_results = []
+        category_domains = []
+
+        for query in queries:
+            # Run the query
+            query_result = analyze_citations_for_competitors(query, track_domains)
+
+            cited_domains = [s.get("domain", "unknown") for s in query_result.get("cited_sources", [])]
+            category_domains.extend(cited_domains)
+            all_domains.extend(cited_domains)
+
+            # Check if tracked domains appeared
+            tracked_found = []
+            if track_domains:
+                for domain in track_domains:
+                    for cited in cited_domains:
+                        if domain.lower() in cited.lower():
+                            tracked_found.append(domain)
+                            break
+
+            category_results.append({
+                "query": query,
+                "cited_domains": cited_domains,
+                "tracked_found": tracked_found,
+                "citation_count": len(cited_domains)
+            })
+
+        # Category summary
+        results["by_category"][category] = {
+            "queries": category_results,
+            "total_citations": len(category_domains),
+            "unique_domains": list(set(category_domains)),
+            "domain_counts": dict(Counter(category_domains))
+        }
+
+        # Track domain frequency by category
+        results["domain_by_category"][category] = dict(Counter(category_domains))
+
+    # Overall domain frequency
+    results["domain_frequency"] = dict(Counter(all_domains).most_common(20))
+
+    # Generate insights
+    results["insights"] = generate_pattern_insights(results, track_domains)
+
+    return results
+
+
+def generate_pattern_insights(results, track_domains):
+    """Generate actionable insights from pattern analysis."""
+
+    insights = []
+
+    # Find which category has most citations
+    category_totals = {cat: data["total_citations"] for cat, data in results["by_category"].items()}
+    if category_totals:
+        top_category = max(category_totals, key=category_totals.get)
+        insights.append(f"'{top_category}' queries generate the most citations ({category_totals[top_category]} total)")
+
+    # Find domains that appear across all categories
+    all_category_domains = [set(data["unique_domains"]) for data in results["by_category"].values()]
+    if all_category_domains:
+        consistent_domains = set.intersection(*all_category_domains) if len(all_category_domains) > 1 else all_category_domains[0]
+        if consistent_domains:
+            insights.append(f"Domains cited across ALL query types: {', '.join(list(consistent_domains)[:5])}")
+
+    # Check tracked domain performance by category
+    if track_domains:
+        for domain in track_domains:
+            domain_categories = []
+            for cat, data in results["by_category"].items():
+                for q in data["queries"]:
+                    if domain in q.get("tracked_found", []):
+                        domain_categories.append(cat)
+                        break
+            if domain_categories:
+                insights.append(f"'{domain}' appears in: {', '.join(domain_categories)}")
+            else:
+                insights.append(f"'{domain}' was NOT cited in any query type")
+
+    # Find category-specific domains
+    for cat, data in results["by_category"].items():
+        top_domains = sorted(data["domain_counts"].items(), key=lambda x: x[1], reverse=True)[:3]
+        if top_domains:
+            domain_list = ", ".join([f"{d[0]} ({d[1]}x)" for d in top_domains])
+            insights.append(f"Top domains for {cat}: {domain_list}")
+
+    return insights
+
 
 # ============ FLASK ROUTES ============
 
@@ -381,6 +554,81 @@ def api_stats():
             "top_domains": [dict(row) for row in top_domains],
             "competitor_citations": [dict(row) for row in competitor_citations]
         })
+
+
+@app.route('/api/pattern-test/generate', methods=['POST'])
+def api_generate_variations():
+    """Generate query variations for a topic."""
+    data = request.json
+    topic = data.get('topic', '')
+    brands = data.get('brands', [])
+
+    if not topic:
+        return jsonify({"error": "Topic is required"}), 400
+
+    try:
+        result = generate_query_variations(topic, brands if brands else None)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/pattern-test/run', methods=['POST'])
+def api_run_pattern_test():
+    """Run full pattern analysis with query variations."""
+    data = request.json
+    topic = data.get('topic', '')
+    variations = data.get('variations', {})
+    track_domains = data.get('track_domains', [])
+
+    if not topic or not variations:
+        return jsonify({"error": "Topic and variations are required"}), 400
+
+    try:
+        result = run_pattern_analysis(topic, variations, track_domains if track_domains else None)
+
+        # Store in database
+        with get_db() as conn:
+            conn.execute(
+                "INSERT INTO pattern_tests (topic, test_results) VALUES (?, ?)",
+                (topic, json.dumps(result))
+            )
+
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/pattern-test/history')
+def api_pattern_history():
+    """Get pattern test history."""
+    with get_db() as conn:
+        tests = conn.execute("""
+            SELECT id, topic, tested_at
+            FROM pattern_tests
+            ORDER BY tested_at DESC
+            LIMIT 20
+        """).fetchall()
+
+        return jsonify([dict(row) for row in tests])
+
+
+@app.route('/api/pattern-test/<int:test_id>')
+def api_pattern_test_detail(test_id):
+    """Get detailed results for a specific pattern test."""
+    with get_db() as conn:
+        test = conn.execute(
+            "SELECT * FROM pattern_tests WHERE id = ?",
+            (test_id,)
+        ).fetchone()
+
+        if not test:
+            return jsonify({"error": "Test not found"}), 404
+
+        result = dict(test)
+        result['test_results'] = json.loads(result['test_results'])
+        return jsonify(result)
+
 
 if __name__ == '__main__':
     init_db()
