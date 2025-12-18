@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LLM Research Tool - Citation Visibility Checker</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .progress-bar {
+            transition: width 0.3s ease;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-100 min-h-screen">
+    <div class="max-w-5xl mx-auto px-4 py-8">
+        <!-- Header -->
+        <header class="mb-8">
+            <h1 class="text-3xl font-bold text-white mb-2">LLM Research Tool</h1>
+            <p class="text-gray-400">Check how often your assets appear in LLM citations across multiple queries</p>
+        </header>
+
+        <!-- API Key Section -->
+        <div class="bg-gray-800 rounded-lg p-6 mb-6">
+            <div class="flex items-center gap-4">
+                <div class="flex-1">
+                    <label class="block text-sm font-medium text-gray-300 mb-1">OpenAI API Key</label>
+                    <input type="password" id="api-key"
+                        class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        placeholder="sk-proj-...">
+                </div>
+                <button onclick="saveApiKey()" class="mt-6 bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg font-medium transition">
+                    Save Key
+                </button>
+            </div>
+            <p id="key-status" class="text-sm text-gray-400 mt-2"></p>
+        </div>
+
+        <!-- Main Input Section -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+            <!-- Queries Input -->
+            <div class="bg-gray-800 rounded-lg p-6">
+                <label class="block text-sm font-medium text-gray-300 mb-2">
+                    Queries to Test <span class="text-gray-500">(one per line, up to 50)</span>
+                </label>
+                <textarea id="queries-input" rows="15"
+                    class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-3 text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 font-mono text-sm"
+                    placeholder="best project management software 2024
+top CRM tools for small business
+how to choose email marketing platform
+..."></textarea>
+                <p class="text-sm text-gray-500 mt-2">Query count: <span id="query-count">0</span>/50</p>
+            </div>
+
+            <!-- Assets to Track -->
+            <div class="bg-gray-800 rounded-lg p-6">
+                <label class="block text-sm font-medium text-gray-300 mb-2">
+                    Your Assets to Track <span class="text-gray-500">(domains, one per line)</span>
+                </label>
+                <textarea id="assets-input" rows="8"
+                    class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-3 text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 font-mono text-sm"
+                    placeholder="yourdomain.com
+yourblog.com
+yourproduct.io"></textarea>
+
+                <div class="mt-4">
+                    <label class="block text-sm font-medium text-gray-300 mb-2">Competitor Domains (optional)</label>
+                    <textarea id="competitors-input" rows="4"
+                        class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-3 text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 font-mono text-sm"
+                        placeholder="competitor1.com
+competitor2.com"></textarea>
+                </div>
+            </div>
+        </div>
+
+        <!-- Run Button -->
+        <div class="mb-6">
+            <button onclick="runAnalysis()" id="run-btn"
+                class="w-full bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed py-4 rounded-lg font-semibold text-lg transition">
+                Run Citation Analysis
+            </button>
+        </div>
+
+        <!-- Progress Section -->
+        <div id="progress-section" class="hidden bg-gray-800 rounded-lg p-6 mb-6">
+            <div class="flex justify-between items-center mb-2">
+                <span class="text-sm font-medium">Progress</span>
+                <span id="progress-text" class="text-sm text-gray-400">0/0 queries</span>
+            </div>
+            <div class="w-full bg-gray-700 rounded-full h-3">
+                <div id="progress-bar" class="progress-bar bg-blue-500 h-3 rounded-full" style="width: 0%"></div>
+            </div>
+            <p id="current-query" class="text-sm text-gray-400 mt-2 truncate"></p>
+        </div>
+
+        <!-- Results Section -->
+        <div id="results-section" class="hidden space-y-6">
+            <!-- Summary Cards -->
+            <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <div class="bg-gray-800 rounded-lg p-4 text-center">
+                    <p class="text-3xl font-bold text-white" id="total-queries">0</p>
+                    <p class="text-sm text-gray-400">Queries Run</p>
+                </div>
+                <div class="bg-gray-800 rounded-lg p-4 text-center">
+                    <p class="text-3xl font-bold text-white" id="total-citations">0</p>
+                    <p class="text-sm text-gray-400">Total Citations</p>
+                </div>
+                <div class="bg-gray-800 rounded-lg p-4 text-center">
+                    <p class="text-3xl font-bold text-green-400" id="your-appearances">0</p>
+                    <p class="text-sm text-gray-400">Your Asset Appearances</p>
+                </div>
+                <div class="bg-gray-800 rounded-lg p-4 text-center">
+                    <p class="text-3xl font-bold text-green-400" id="visibility-rate">0%</p>
+                    <p class="text-sm text-gray-400">Visibility Rate</p>
+                </div>
+            </div>
+
+            <!-- Your Assets Performance -->
+            <div class="bg-gray-800 rounded-lg p-6">
+                <h3 class="text-lg font-semibold mb-4">Your Asset Performance</h3>
+                <div id="your-assets-results"></div>
+            </div>
+
+            <!-- Competitor Performance -->
+            <div id="competitor-section" class="hidden bg-gray-800 rounded-lg p-6">
+                <h3 class="text-lg font-semibold mb-4">Competitor Performance</h3>
+                <div id="competitor-results"></div>
+            </div>
+
+            <!-- Top Cited Domains -->
+            <div class="bg-gray-800 rounded-lg p-6">
+                <h3 class="text-lg font-semibold mb-4">Top Cited Domains</h3>
+                <div id="top-domains"></div>
+            </div>
+
+            <!-- Detailed Results -->
+            <div class="bg-gray-800 rounded-lg p-6">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-lg font-semibold">Query-by-Query Results</h3>
+                    <button onclick="exportResults()" class="bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded-lg text-sm transition">
+                        Export CSV
+                    </button>
+                </div>
+                <div id="detailed-results" class="space-y-2 max-h-96 overflow-y-auto"></div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <footer class="mt-12 text-center text-gray-500 text-sm">
+            <p>Your API key is stored locally in your browser and never sent to any server except OpenAI.</p>
+        </footer>
+    </div>
+
+    <script>
+        let analysisResults = [];
+
+        // Load saved API key on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            const savedKey = localStorage.getItem('openai_api_key');
+            if (savedKey) {
+                document.getElementById('api-key').value = savedKey;
+                document.getElementById('key-status').textContent = 'API key loaded from storage';
+                document.getElementById('key-status').className = 'text-sm text-green-400 mt-2';
+            }
+
+            // Update query count on input
+            document.getElementById('queries-input').addEventListener('input', updateQueryCount);
+        });
+
+        function updateQueryCount() {
+            const queries = document.getElementById('queries-input').value
+                .split('\n').map(q => q.trim()).filter(q => q);
+            document.getElementById('query-count').textContent = Math.min(queries.length, 50);
+        }
+
+        function saveApiKey() {
+            const key = document.getElementById('api-key').value.trim();
+            if (key) {
+                localStorage.setItem('openai_api_key', key);
+                document.getElementById('key-status').textContent = 'API key saved successfully';
+                document.getElementById('key-status').className = 'text-sm text-green-400 mt-2';
+            }
+        }
+
+        async function runAnalysis() {
+            const apiKey = document.getElementById('api-key').value.trim();
+            if (!apiKey) {
+                alert('Please enter your OpenAI API key');
+                return;
+            }
+
+            const queries = document.getElementById('queries-input').value
+                .split('\n').map(q => q.trim()).filter(q => q).slice(0, 50);
+
+            if (queries.length === 0) {
+                alert('Please enter at least one query');
+                return;
+            }
+
+            const yourAssets = document.getElementById('assets-input').value
+                .split('\n').map(a => a.trim().toLowerCase()).filter(a => a);
+
+            const competitors = document.getElementById('competitors-input').value
+                .split('\n').map(c => c.trim().toLowerCase()).filter(c => c);
+
+            // Show progress
+            document.getElementById('progress-section').classList.remove('hidden');
+            document.getElementById('results-section').classList.add('hidden');
+            document.getElementById('run-btn').disabled = true;
+            document.getElementById('run-btn').textContent = 'Running...';
+
+            analysisResults = [];
+            const allCitations = [];
+            let yourAppearances = 0;
+            const assetCounts = {};
+            const competitorCounts = {};
+            const domainCounts = {};
+
+            yourAssets.forEach(a => assetCounts[a] = 0);
+            competitors.forEach(c => competitorCounts[c] = 0);
+
+            for (let i = 0; i < queries.length; i++) {
+                const query = queries[i];
+
+                // Update progress
+                document.getElementById('progress-text').textContent = `${i + 1}/${queries.length} queries`;
+                document.getElementById('progress-bar').style.width = `${((i + 1) / queries.length) * 100}%`;
+                document.getElementById('current-query').textContent = `Running: ${query}`;
+
+                try {
+                    const result = await runQuery(apiKey, query);
+                    const citations = result.cited_sources || [];
+
+                    // Track citations
+                    let foundYourAsset = false;
+                    const foundAssets = [];
+                    const foundCompetitors = [];
+
+                    citations.forEach(cite => {
+                        const domain = (cite.domain || '').toLowerCase();
+                        allCitations.push(domain);
+
+                        // Count domain
+                        domainCounts[domain] = (domainCounts[domain] || 0) + 1;
+
+                        // Check your assets
+                        yourAssets.forEach(asset => {
+                            if (domain.includes(asset)) {
+                                assetCounts[asset]++;
+                                foundAssets.push(asset);
+                                foundYourAsset = true;
+                            }
+                        });
+
+                        // Check competitors
+                        competitors.forEach(comp => {
+                            if (domain.includes(comp)) {
+                                competitorCounts[comp]++;
+                                foundCompetitors.push(comp);
+                            }
+                        });
+                    });
+
+                    if (foundYourAsset) yourAppearances++;
+
+                    analysisResults.push({
+                        query,
+                        citations: citations.map(c => c.domain),
+                        foundAssets,
+                        foundCompetitors,
+                        success: true
+                    });
+
+                } catch (err) {
+                    console.error(`Error on query "${query}":`, err);
+                    analysisResults.push({
+                        query,
+                        citations: [],
+                        foundAssets: [],
+                        foundCompetitors: [],
+                        success: false,
+                        error: err.message
+                    });
+                }
+
+                // Small delay to avoid rate limiting
+                await new Promise(r => setTimeout(r, 500));
+            }
+
+            // Display results
+            displayResults({
+                totalQueries: queries.length,
+                totalCitations: allCitations.length,
+                yourAppearances,
+                visibilityRate: ((yourAppearances / queries.length) * 100).toFixed(1),
+                assetCounts,
+                competitorCounts,
+                domainCounts,
+                hasCompetitors: competitors.length > 0
+            });
+
+            // Reset button
+            document.getElementById('run-btn').disabled = false;
+            document.getElementById('run-btn').textContent = 'Run Citation Analysis';
+            document.getElementById('current-query').textContent = 'Complete!';
+        }
+
+        async function runQuery(apiKey, query) {
+            const response = await fetch('https://api.openai.com/v1/responses', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${apiKey}`
+                },
+                body: JSON.stringify({
+                    model: 'gpt-4o',
+                    tools: [{ type: 'web_search_preview' }],
+                    input: `Search the web for: ${query}
+
+After searching, provide a brief answer and then list ALL sources/domains cited in this exact JSON format at the end:
+
+\`\`\`json
+{
+    "cited_sources": [
+        {"domain": "example.com", "title": "Page Title", "relevance": "why cited"}
+    ]
+}
+\`\`\``
+                })
+            });
+
+            if (!response.ok) {
+                const err = await response.json();
+                throw new Error(err.error?.message || 'API request failed');
+            }
+
+            const data = await response.json();
+
+            // Extract response text
+            let responseText = '';
+            for (const item of data.output || []) {
+                if (item.type === 'message') {
+                    for (const content of item.content || []) {
+                        if (content.type === 'output_text') {
+                            responseText += content.text;
+                        }
+                    }
+                }
+            }
+
+            // Parse JSON from response
+            let citedSources = [];
+            try {
+                const jsonStart = responseText.lastIndexOf('```json');
+                const jsonEnd = responseText.lastIndexOf('```', jsonStart + 7);
+                if (jsonStart !== -1 && jsonEnd > jsonStart) {
+                    const jsonStr = responseText.slice(jsonStart + 7, jsonEnd).trim();
+                    const parsed = JSON.parse(jsonStr);
+                    citedSources = parsed.cited_sources || [];
+                }
+            } catch (e) {
+                console.warn('Failed to parse citations JSON');
+            }
+
+            return { cited_sources: citedSources };
+        }
+
+        function displayResults(data) {
+            document.getElementById('results-section').classList.remove('hidden');
+
+            // Summary cards
+            document.getElementById('total-queries').textContent = data.totalQueries;
+            document.getElementById('total-citations').textContent = data.totalCitations;
+            document.getElementById('your-appearances').textContent = data.yourAppearances;
+            document.getElementById('visibility-rate').textContent = `${data.visibilityRate}%`;
+
+            // Your assets performance
+            const assetHtml = Object.entries(data.assetCounts)
+                .sort((a, b) => b[1] - a[1])
+                .map(([asset, count]) => {
+                    const rate = ((count / data.totalQueries) * 100).toFixed(1);
+                    return `
+                        <div class="flex items-center justify-between py-2 border-b border-gray-700">
+                            <span class="font-mono text-green-400">${asset}</span>
+                            <span class="text-white">${count} citations (${rate}%)</span>
+                        </div>
+                    `;
+                }).join('') || '<p class="text-gray-400">No assets specified</p>';
+            document.getElementById('your-assets-results').innerHTML = assetHtml;
+
+            // Competitor performance
+            if (data.hasCompetitors) {
+                document.getElementById('competitor-section').classList.remove('hidden');
+                const compHtml = Object.entries(data.competitorCounts)
+                    .sort((a, b) => b[1] - a[1])
+                    .map(([comp, count]) => {
+                        const rate = ((count / data.totalQueries) * 100).toFixed(1);
+                        return `
+                            <div class="flex items-center justify-between py-2 border-b border-gray-700">
+                                <span class="font-mono text-red-400">${comp}</span>
+                                <span class="text-white">${count} citations (${rate}%)</span>
+                            </div>
+                        `;
+                    }).join('');
+                document.getElementById('competitor-results').innerHTML = compHtml;
+            }
+
+            // Top domains
+            const topDomainsHtml = Object.entries(data.domainCounts)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 15)
+                .map(([domain, count], i) => `
+                    <div class="flex items-center justify-between py-2 border-b border-gray-700">
+                        <span><span class="text-gray-500 mr-2">${i + 1}.</span>${domain}</span>
+                        <span class="text-gray-300">${count}</span>
+                    </div>
+                `).join('');
+            document.getElementById('top-domains').innerHTML = topDomainsHtml;
+
+            // Detailed results
+            const detailedHtml = analysisResults.map(r => {
+                const statusClass = r.foundAssets.length > 0 ? 'border-green-600' : 'border-gray-700';
+                const statusIcon = r.foundAssets.length > 0 ? '✓' : r.success ? '−' : '✗';
+                const statusColor = r.foundAssets.length > 0 ? 'text-green-400' : r.success ? 'text-gray-400' : 'text-red-400';
+
+                return `
+                    <details class="border ${statusClass} rounded-lg">
+                        <summary class="px-4 py-2 cursor-pointer flex items-center gap-3">
+                            <span class="${statusColor} font-bold">${statusIcon}</span>
+                            <span class="flex-1 truncate">${r.query}</span>
+                            <span class="text-gray-400 text-sm">${r.citations.length} citations</span>
+                        </summary>
+                        <div class="px-4 py-2 bg-gray-900 text-sm">
+                            ${r.foundAssets.length > 0 ? `<p class="text-green-400 mb-1">Your assets found: ${r.foundAssets.join(', ')}</p>` : ''}
+                            ${r.foundCompetitors.length > 0 ? `<p class="text-red-400 mb-1">Competitors found: ${r.foundCompetitors.join(', ')}</p>` : ''}
+                            <p class="text-gray-400">Citations: ${r.citations.join(', ') || 'None extracted'}</p>
+                            ${r.error ? `<p class="text-red-400">Error: ${r.error}</p>` : ''}
+                        </div>
+                    </details>
+                `;
+            }).join('');
+            document.getElementById('detailed-results').innerHTML = detailedHtml;
+        }
+
+        function exportResults() {
+            if (analysisResults.length === 0) return;
+
+            const headers = ['Query', 'Success', 'Citations', 'Your Assets Found', 'Competitors Found'];
+            const rows = analysisResults.map(r => [
+                `"${r.query.replace(/"/g, '""')}"`,
+                r.success,
+                `"${r.citations.join(', ')}"`,
+                `"${r.foundAssets.join(', ')}"`,
+                `"${r.foundCompetitors.join(', ')}"`
+            ]);
+
+            const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = URL.createObjectURL(blob);
+
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `citation-analysis-${new Date().toISOString().split('T')[0]}.csv`;
+            a.click();
+        }
+    </script>
+</body>
+</html>
