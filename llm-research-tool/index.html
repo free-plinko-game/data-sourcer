@@ -316,15 +316,7 @@ competitor2.com"></textarea>
                     tools: [{ type: 'web_search_preview' }],
                     input: `Search the web for: ${query}
 
-After searching, provide a brief answer and then list ALL sources/domains cited in this exact JSON format at the end:
-
-\`\`\`json
-{
-    "cited_sources": [
-        {"domain": "example.com", "title": "Page Title", "relevance": "why cited"}
-    ]
-}
-\`\`\``
+Provide a comprehensive answer with citations from the search results.`
                 })
             });
 
@@ -335,33 +327,96 @@ After searching, provide a brief answer and then list ALL sources/domains cited 
 
             const data = await response.json();
 
-            // Extract response text
+            // Extract all citations from the response
+            let citedSources = [];
             let responseText = '';
+
             for (const item of data.output || []) {
+                // Check for web search results
+                if (item.type === 'web_search_call') {
+                    // Web search was called
+                    console.log('Web search executed');
+                }
+
+                // Check for message content with citations
                 if (item.type === 'message') {
                     for (const content of item.content || []) {
                         if (content.type === 'output_text') {
                             responseText += content.text;
+
+                            // Extract citations from annotations if present
+                            if (content.annotations) {
+                                for (const annotation of content.annotations) {
+                                    if (annotation.type === 'url_citation' && annotation.url) {
+                                        const domain = extractDomain(annotation.url);
+                                        if (domain) {
+                                            citedSources.push({
+                                                domain: domain,
+                                                url: annotation.url,
+                                                title: annotation.title || ''
+                                            });
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
             }
 
-            // Parse JSON from response
-            let citedSources = [];
-            try {
-                const jsonStart = responseText.lastIndexOf('```json');
-                const jsonEnd = responseText.lastIndexOf('```', jsonStart + 7);
-                if (jsonStart !== -1 && jsonEnd > jsonStart) {
-                    const jsonStr = responseText.slice(jsonStart + 7, jsonEnd).trim();
-                    const parsed = JSON.parse(jsonStr);
-                    citedSources = parsed.cited_sources || [];
+            // Also extract URLs directly from response text as fallback
+            const urlsInText = extractUrlsFromText(responseText);
+            for (const url of urlsInText) {
+                const domain = extractDomain(url);
+                if (domain && !citedSources.some(c => c.domain === domain)) {
+                    citedSources.push({ domain: domain, url: url, title: '' });
                 }
-            } catch (e) {
-                console.warn('Failed to parse citations JSON');
             }
 
-            return { cited_sources: citedSources };
+            // Extract domain mentions (e.g., "according to example.com")
+            const domainMentions = extractDomainMentions(responseText);
+            for (const domain of domainMentions) {
+                if (!citedSources.some(c => c.domain === domain)) {
+                    citedSources.push({ domain: domain, url: '', title: '' });
+                }
+            }
+
+            return { cited_sources: citedSources, response_text: responseText };
+        }
+
+        function extractDomain(url) {
+            try {
+                const urlObj = new URL(url);
+                return urlObj.hostname.replace('www.', '');
+            } catch {
+                return null;
+            }
+        }
+
+        function extractUrlsFromText(text) {
+            const urlRegex = /https?:\/\/[^\s\)\]\}\"\'<>]+/gi;
+            return [...new Set(text.match(urlRegex) || [])];
+        }
+
+        function extractDomainMentions(text) {
+            // Match domain patterns like "example.com" or "sub.example.co.uk"
+            const domainRegex = /\b([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}\b/g;
+            const matches = text.match(domainRegex) || [];
+
+            // Filter out common false positives
+            const filtered = matches.filter(d => {
+                const lower = d.toLowerCase();
+                return !lower.endsWith('.json') &&
+                       !lower.endsWith('.xml') &&
+                       !lower.endsWith('.html') &&
+                       !lower.endsWith('.css') &&
+                       !lower.endsWith('.js') &&
+                       !lower.startsWith('e.g.') &&
+                       !lower.startsWith('i.e.') &&
+                       lower.length > 4;
+            });
+
+            return [...new Set(filtered.map(d => d.toLowerCase().replace('www.', '')))];
         }
 
         function displayResults(data) {
